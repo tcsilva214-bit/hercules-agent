@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+# Third-party actions are pinned to full commit SHAs (the tag each one was resolved from is in the comment).
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - name: Toolchain (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Unit tests
+        run: cargo test --release --locked
+      - name: Build
+        run: cargo build --release --locked
+      - name: End-to-end (mock model)
+        run: python3 tests/e2e/e2e.py target/release/hercules-agent
+      - name: Demo
+        run: python3 examples/demo.py target/release/hercules-agent
+      - name: Installer (install.sh against a local mock release)
+        run: python3 tests/install/test_install.py install.sh
+
+  audit:
+    # Signed runs added ed25519-dalek and its dependencies: check Cargo.lock against the RustSec
+    # advisory database on every push.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Audit Cargo.lock
+        run: cargo audit

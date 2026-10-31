@@ -1,0 +1,6 @@
+# Use the installed stable toolchain (no download). Release builds additionally
+# require the exact compiler in RELEASE_RUSTC (checked by scripts/build-release.sh),
+# so a drifted stable can never silently produce a release.
+[toolchain]
+channel = "stable"
+profile = "minimal"

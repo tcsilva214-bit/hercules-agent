@@ -1,0 +1,26 @@
+config_version = 2
+
+# Where the model runs. Ollama shown; for an OpenAI-compatible server (llama.cpp, vLLM, oMLX, ...)
+# use provider.kind = openai and its base URL. There are no defaults: every required key must be set.
+provider.kind = ollama
+provider.endpoint = http://127.0.0.1:11434
+
+# The exact model identity. Every response must carry it, or the run stops.
+model.default = qwen3:8b
+model.context_length = 32000
+
+agent.max_iterations = 14
+agent.request_timeout_seconds = 120
+
+# Read-only roots the operator grants. A run reads only the roots named in --roots.
+# Paths must be absolute and must exist.
+root.code = read:/absolute/path/to/a/repo
+
+# The commands cmd.run may use. No shell: each command has a fixed grammar.
+cmd.enable = ls, cat, head, tail, sed, wc, grep, rg, shasum, sha256sum, cmp, stat
+
+# Every run is signed. Make a key pair once (it refuses to overwrite one):
+#   hercules-agent keygen --out /absolute/path/to/keys
+# and name the private key here. It must be mode 0600 and must not sit inside a granted root.
+# Give signing.pub to whoever checks your runs with `hercules-agent attest verify`.
+sign.key_file = /absolute/path/to/keys/signing.key

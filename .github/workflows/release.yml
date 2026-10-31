@@ -1,0 +1,116 @@
+name: release
+
+# A pushed tag v* builds the release binaries and opens a DRAFT GitHub release with the archives,
+# install.sh and SHA256SUMS. Nothing is published here: the maintainer checks the macOS arm64 binary
+# against their own build, signs SHA256SUMS with the release key and publishes (scripts/sign-release.sh).
+# A tag with a suffix (v0.1.0-dryrun.1) is a dry run: it is marked pre-release and is deleted afterwards.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+# Third-party actions are pinned to full commit SHAs (the tag each one was resolved from is in the comment).
+
+env:
+  RUSTUP_TOOLCHAIN: "1.97.1"   # must equal RELEASE_RUSTC (checked)
+  # The macOS binaries are linked with this Xcode. scripts/sign-release.sh rebuilds the arm64 binary on the
+  # maintainer's Mac and needs the same Xcode there: a different linker lays the binary out differently.
+  XCODE_VERSION: "27.1"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false   # every target reports, even when one fails
+      matrix:
+        # Linux arm64 runners are free for public repositories only; a private dry run builds the other three.
+        include: ${{ fromJSON(github.event.repository.visibility == 'public' && '[{"os":"xcode-27","target":"aarch64-apple-darwin","test":true},{"os":"xcode-27","target":"x86_64-apple-darwin","test":false},{"os":"ubuntu-latest","target":"x86_64-unknown-linux-musl","test":true},{"os":"ubuntu-24.04-arm","target":"aarch64-unknown-linux-musl","test":true}]' || '[{"os":"xcode-27","target":"aarch64-apple-darwin","test":true},{"os":"xcode-27","target":"x86_64-apple-darwin","test":false},{"os":"ubuntu-latest","target":"x86_64-unknown-linux-musl","test":true}]') }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - name: Tag, crate version, installer and compiler agree
+        run: |
+          v=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+          case "$GITHUB_REF_NAME" in
+            "v$v") final=1 ;;
+            "v$v-"*) final=0 ;;
+            *) echo "tag $GITHUB_REF_NAME does not match Cargo.toml version $v"; exit 1 ;;
+          esac
+          [ "$(tr -d '[:space:]' < RELEASE_RUSTC)" = "$RUSTUP_TOOLCHAIN" ] || { echo "RELEASE_RUSTC differs from RUSTUP_TOOLCHAIN"; exit 1; }
+          grep -q "^VERSION=\"v$v\"$" install.sh || { echo "install.sh VERSION is not v$v"; exit 1; }
+          if [ "$final" = 1 ] && grep -q RELEASE_PUBKEY_NOT_SET install.sh; then echo "install.sh has no release key"; exit 1; fi
+      - name: Xcode (macOS, XCODE_VERSION)
+        if: runner.os == 'macOS'
+        run: |
+          app=""
+          for a in "/Applications/Xcode_$XCODE_VERSION.app" "/Applications/Xcode_$XCODE_VERSION.0.app"; do [ -d "$a" ] && { app="$a"; break; }; done
+          [ -n "$app" ] || { echo "Xcode $XCODE_VERSION is not on this runner image; installed:"; ls -d /Applications/Xcode*.app; exit 1; }
+          echo "DEVELOPER_DIR=$app/Contents/Developer" >> "$GITHUB_ENV"
+          DEVELOPER_DIR="$app/Contents/Developer" xcodebuild -version
+          DEVELOPER_DIR="$app/Contents/Developer" xcrun ld -v 2>&1 | head -1
+          DEVELOPER_DIR="$app/Contents/Developer" xcodebuild -version | grep -qx "Xcode $XCODE_VERSION" || { echo "selected Xcode is not $XCODE_VERSION"; exit 1; }
+      - name: Toolchain
+        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --target "${{ matrix.target }}"
+      - name: Unit tests
+        if: matrix.test
+        run: cargo test --release --locked --target "${{ matrix.target }}"
+      - name: Release build (scripts/build-release.sh)
+        run: HERCULES_TARGET="${{ matrix.target }}" bash scripts/build-release.sh
+      - name: End-to-end, demo and installer tests on the release binary
+        if: matrix.test
+        run: |
+          b="target/${{ matrix.target }}/release/hercules-agent"
+          "$b" --version
+          python3 tests/e2e/e2e.py "$b"
+          python3 examples/demo.py "$b"
+          python3 tests/install/test_install.py install.sh
+      - name: Package
+        run: |
+          n="hercules-agent-$GITHUB_REF_NAME-${{ matrix.target }}"
+          mkdir -p "dist/$n"
+          cp "target/${{ matrix.target }}/release/hercules-agent" LICENSE NOTICE README.md "dist/$n/"
+          tar -C dist -czf "dist/$n.tar.gz" "$n"
+          shasum -a 256 "target/${{ matrix.target }}/release/hercules-agent" "dist/$n.tar.gz" 2>/dev/null || sha256sum "target/${{ matrix.target }}/release/hercules-agent" "dist/$n.tar.gz"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: ${{ matrix.target }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  draft:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          path: dist
+          merge-multiple: true
+      - name: SHA256SUMS
+        run: |
+          want=4; [ "${{ github.event.repository.visibility }}" = public ] || want=3
+          [ "$(ls dist/*.tar.gz | wc -l)" = "$want" ] || { echo "expected $want archives"; ls dist; exit 1; }
+          cp install.sh dist/install.sh
+          (cd dist && sha256sum *.tar.gz install.sh > SHA256SUMS && cat SHA256SUMS)
+      - name: Build provenance (public repositories)
+        if: github.event.repository.visibility == 'public'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6  # v4.2.2
+        with:
+          subject-path: "dist/*.tar.gz"
+      - name: Draft release (unsigned until scripts/sign-release.sh)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pre=""; case "$GITHUB_REF_NAME" in *-*) pre="--prerelease" ;; esac
+          printf '%s\n' \
+            "Install (macOS, Linux):" "" \
+            "    curl -fsSL https://github.com/${{ github.repository }}/releases/download/$GITHUB_REF_NAME/install.sh | sh" "" \
+            "install.sh checks SHA256SUMS.sig against the release key in the README, then the archive's SHA-256." \
+            "Built from $GITHUB_SHA by the release workflow; see the README for manual verification." > notes.md
+          gh release create "$GITHUB_REF_NAME" --draft $pre --verify-tag --title "hercules-agent $GITHUB_REF_NAME" --notes-file notes.md dist/*
