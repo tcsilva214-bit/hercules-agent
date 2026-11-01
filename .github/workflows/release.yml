@@ -40,7 +40,11 @@ jobs:
           esac
           [ "$(tr -d '[:space:]' < RELEASE_RUSTC)" = "$RUSTUP_TOOLCHAIN" ] || { echo "RELEASE_RUSTC differs from RUSTUP_TOOLCHAIN"; exit 1; }
           grep -q "^VERSION=\"v$v\"$" install.sh || { echo "install.sh VERSION is not v$v"; exit 1; }
-          if [ "$final" = 1 ] && grep -q RELEASE_PUBKEY_NOT_SET install.sh; then echo "install.sh has no release key"; exit 1; fi
+          if [ "$final" = 1 ]; then
+            [ "$(grep -c '^RELEASE_PUBKEY=' install.sh)" = 1 ] &&
+              grep -Eq '^RELEASE_PUBKEY="ssh-ed25519 [A-Za-z0-9+/=]+ hercules-release"$' install.sh ||
+              { echo "install.sh release public key missing or malformed"; exit 1; }
+          fi
       - name: Xcode (macOS, XCODE_VERSION)
         if: runner.os == 'macOS'
         run: |
