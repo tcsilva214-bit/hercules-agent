@@ -2,9 +2,11 @@
 
 **A local agent harness that can prove what it did.**
 
-> **Showcase snapshot.** This is Build 3.6.1 of `hercules-agent` with signed runs, an MCP server
-> and a write lane, published so the work can be seen and run. It is not the official release: interfaces, config keys and output schemas may still change, and
-> fixes land in the main line first. Issues and questions are welcome; no support is promised.
+> **Early-stage open-source developer project.** HERCULES includes signed runs, a read-only MCP
+> server and an approval-gated write lane. Its first tagged developer release is `v0.1.0`. Until that
+> tag and its signed assets are published, use the source build and demo rather than the release install
+> links below. Interfaces, configuration keys and output schemas may change. See [SECURITY.md](SECURITY.md)
+> for security reporting and version support. Issues and questions are welcome; support is best effort.
 
 HERCULES runs a language model in a bounded loop on your own machine and lets it inspect files and run a
 small set of read-only commands. Everything it does goes through the harness: model output is only data

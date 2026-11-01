@@ -44,5 +44,10 @@ problem.
 
 ## Supported versions
 
-This repository is a labeled showcase snapshot. Fixes are made in the main line and appear here with the
-next published build.
+HERCULES is an early-stage project. The current `main` branch contains public development source; the
+first tagged developer release is `v0.1.0`. Until that tag and its signed release assets are published,
+there is no signed versioned release available to install.
+
+Security fixes target the current maintained development line and, when published, the latest tagged
+release. Backports to earlier tags or historical commits are not guaranteed. Reports are welcome, but
+response times, remediation timelines and ongoing support are not guaranteed.
